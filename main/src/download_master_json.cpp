@@ -10,9 +10,8 @@
 
 static const char *TAG = "MASTER_JSON_DOWNLOAD";
 
-// Dynamic buffer to hold response data
-static char *response_buffer = NULL;
-static int response_buffer_size = 0;
+static char *response_data = NULL;
+static int response_data_len = 0;
 
 static esp_err_t download_event_handler(esp_http_client_event_t *evt)
 {
@@ -41,24 +40,28 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
     case HTTP_EVENT_ON_DATA:
         if (evt->data_len > 0)
         {
-            response_buffer = (char *)realloc(response_buffer, response_buffer_size + evt->data_len + 1);
-            if (response_buffer == NULL)
+            char *new_response_data = (char *)realloc(response_data, response_data_len + evt->data_len + 1);
+            if (new_response_data == NULL)
             {
-                ESP_LOGE(TAG, "Failed to allocate memory for response buffer");
+                ESP_LOGE(TAG, "Failed to allocate memory for response data");
                 return ESP_FAIL;
             }
-            memcpy(response_buffer + response_buffer_size, evt->data, evt->data_len);
-            response_buffer_size += evt->data_len;
-            response_buffer[response_buffer_size] = '\0';
+            response_data = new_response_data;
+            memcpy(response_data + response_data_len, evt->data, evt->data_len);
+            response_data_len += evt->data_len;
+            response_data[response_data_len] = '\0';
         }
         break;
 
     case HTTP_EVENT_ON_FINISH:
         ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
-        ESP_LOGI(TAG, "Response Data: %s", response_buffer);
-        free(response_buffer); // Free the buffer after use
-        response_buffer = NULL;
-        response_buffer_size = 0;
+        if (response_data != NULL)
+        {
+            ESP_LOGI(TAG, "Response Data: %s", response_data);
+            free(response_data);
+            response_data = NULL;
+            response_data_len = 0;
+        }
         break;
 
     case HTTP_EVENT_DISCONNECTED:
