@@ -8,62 +8,60 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "download_master_json.h"
 #include "esp_timer.h"
-
-//From inc
-// #include "download_master_json.h"
-// #include <sdcard.h>
-#include "main.h"
+#include <sdcard.h>
 
 static const char *TAG = "PROCESS_AUDIO_FILES";
 
 static FILE *file = NULL;
+static int64_t total_download_time = 0;
 static int64_t total_download_time = 0;
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
     switch (evt->event_id)
     {
-        case HTTP_EVENT_ERROR:
-            ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
-            break;
-        case HTTP_EVENT_REDIRECT:
-            ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
-            break;
-        case HTTP_EVENT_ON_CONNECTED:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
-            break;
-        case HTTP_EVENT_HEADER_SENT:
-            ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
-            break;
-        case HTTP_EVENT_ON_HEADER:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
-            break;
-        case HTTP_EVENT_ON_DATA:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
-            if (file && evt->data)
-            {
-                fwrite(evt->data, 1, evt->data_len, file);
-            }
-            break;
-        case HTTP_EVENT_ON_FINISH:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
-            if (file)
-            {
-                fclose(file);
-                file = NULL;
-                ESP_LOGI(TAG, "File download complete");
-            }
-            break;
-        case HTTP_EVENT_DISCONNECTED:
-            ESP_LOGD(TAG, "HTTP_EVENT_DISCONNECTED");
-            if (file)
-            {
-                fclose(file);
-                file = NULL;
-                ESP_LOGE(TAG, "File download interrupted");
-            }
-            break;
+    case HTTP_EVENT_ERROR:
+        ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
+        break;
+    case HTTP_EVENT_REDIRECT:
+        ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
+        break;
+    case HTTP_EVENT_ON_CONNECTED:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
+        break;
+    case HTTP_EVENT_HEADER_SENT:
+        ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
+        break;
+    case HTTP_EVENT_ON_HEADER:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+        break;
+    case HTTP_EVENT_ON_DATA:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+        if (file && evt->data)
+        {
+            fwrite(evt->data, 1, evt->data_len, file);
+        }
+        break;
+    case HTTP_EVENT_ON_FINISH:
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+        if (file)
+        {
+            fclose(file);
+            file = NULL;
+            ESP_LOGI(TAG, "File download complete");
+        }
+        break;
+    case HTTP_EVENT_DISCONNECTED:
+        ESP_LOGD(TAG, "HTTP_EVENT_DISCONNECTED");
+        if (file)
+        {
+            fclose(file);
+            file = NULL;
+            ESP_LOGE(TAG, "File download interrupted");
+        }
+        break;
     }
     return ESP_OK;
 }
@@ -98,12 +96,18 @@ static void download_file(const char *file_name)
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
-    esp_http_client_set_header(client, "x-cubbies-box-token", accessToken);
+    esp_http_client_set_header(client, "x-cubbies-box-token", get_access_token());
 
     // Start the timer
     int64_t start_time = esp_timer_get_time();
 
     esp_err_t err = esp_http_client_perform(client);
+
+    // Calculate elapsed time
+    int64_t elapsed_time = esp_timer_get_time() - start_time;
+
+    // Accumulate the elapsed time to total download time
+    total_download_time += elapsed_time;
 
     // Calculate elapsed time
     int64_t elapsed_time = esp_timer_get_time() - start_time;
@@ -117,6 +121,7 @@ static void download_file(const char *file_name)
                  url,
                  esp_http_client_get_status_code(client),
                  esp_http_client_get_content_length(client));
+        ESP_LOGI(TAG, "Download time for %s: %lld ms", file_name, elapsed_time / 1000);
         ESP_LOGI(TAG, "Download time for %s: %lld ms", file_name, elapsed_time / 1000);
     }
     else
@@ -146,22 +151,22 @@ void compare_and_update_N_server(const char *path)
 
 void process_audio_files(const char *sd_card_path)
 {
-    // Get the list of files on the SD card
-    int sd_file_count;
-    char **sd_files = list_files(sd_card_path, &sd_file_count);
+    int file_count = get_N_count();
+    ESP_LOGI(TAG, "Processing %d audio files", file_count);
 
-    if (sd_files == NULL)
+    // Get the list of files in a directory on the SD card
+    vector<string> N_sdcard = list_files("/sdcard/media/audio/");
+
+    // Process the file names to remove the ".cubaud" extension
+    for (auto &file_name : N_sdcard)
     {
-        ESP_LOGE(TAG, "Failed to get list of files from SD card");
-        return;
+        size_t last_dot = file_name.rfind('.');
+        if (last_dot != string::npos)
+        {
+            file_name = file_name.substr(0, last_dot);
+        }
+        ESP_LOGI("FILE", "Stored N_sdcard value: %s", file_name.c_str());
     }
-
-    int n_server_count = get_N_count();
-    ESP_LOGI(TAG, "Total files in N_server: %d", n_server_count);
-
-    // Log duplicate files and create a list of files to download
-    ESP_LOGI(TAG, "Duplicate files (already on SD card):");
-    std::vector<std::string> files_to_download;
 
     for (int i = 0; i < n_server_count; i++)
     {
@@ -194,21 +199,10 @@ void process_audio_files(const char *sd_card_path)
         }
     }
 
-    ESP_LOGI(TAG, "Processing %d unique audio files", files_to_download.size());
-
-    // Process unique files (not on SD card)
-    for (const auto& file_name : files_to_download)
-    {
-        ESP_LOGI(TAG, "Downloading audio file: %s", file_name.c_str());
-
-        // Send GET request to download the file and save the response data
-        download_file(file_name.c_str());
-    }
-
     // Print the total download time
     ESP_LOGI(TAG, "Total download time: %lld ms", total_download_time / 1000);
 
-    // Free the memory allocated for sd_files
-    free_file_list(sd_files, sd_file_count);
-    free_N_server();
+    // Print the access token and request body
+    ESP_LOGI(TAG, "Access Token: %s", get_access_token());
+    ESP_LOGI(TAG, "Request Body: %s", get_request_body());
 }

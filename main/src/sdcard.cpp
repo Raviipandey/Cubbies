@@ -70,8 +70,9 @@ void read_file(const char *path)
     fclose(f);
 }
 
-char** list_files(const char *path, int *file_count)
+vector<string> list_files(const char *path)
 {
+    vector<string> file_names;
     DIR *dir = opendir(path);
     if (dir == NULL)
     {
