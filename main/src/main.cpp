@@ -8,8 +8,6 @@
 #include "driver/sdmmc_defs.h"
 #include "sdmmc_cmd.h"
 
-using namespace std;
-
 // From inc
 #include "main.h"
 
@@ -41,6 +39,8 @@ extern "C" void app_main()
         ESP_LOGE(TAG, "Failed to initialize SD card");
         return;
     }
+    // Get the list of files in a directory on the SD card
+    
 
     // Create a task for the initial login HTTP POST request
     xTaskCreate(&http_post_task, "http_post_task", 8192, NULL, 5, NULL);
